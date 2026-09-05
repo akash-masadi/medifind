@@ -1,0 +1,29 @@
+upstream sidecar_app {
+    server unix:/run/sidecar/gunicorn.sock fail_timeout=0;
+}
+
+# Each Groq call costs money, so cap how fast one client can spend it.
+limit_req_zone $binary_remote_addr zone=sidecar_rl:10m rate=5r/s;
+
+server {
+    listen 80;
+    server_name sidecar.example.com;      # your domain, or the Elastic IP
+
+    client_max_body_size 64k;             # symptom lists are tiny
+    access_log /var/log/nginx/sidecar.access.log;
+    error_log  /var/log/nginx/sidecar.error.log;
+
+    location / {
+        limit_req zone=sidecar_rl burst=10 nodelay;
+
+        proxy_pass http://sidecar_app;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+
+        # Backstop only — the app gives up at 5s. See the timeout ladder.
+        proxy_read_timeout 30s;
+    }
+}

@@ -17,3 +17,9 @@ dist/
 
 .DS_Store
 Thumbs.db
+
+# For Python
+.venv/
+__pycache__/
+.env
+.pytest_cache/

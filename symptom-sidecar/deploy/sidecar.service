@@ -1,0 +1,36 @@
+[Unit]
+Description=MediFind symptom sidecar
+After=network.target
+
+[Service]
+Type=notify
+User=sidecar
+Group=sidecar
+WorkingDirectory=/opt/sidecar/app
+EnvironmentFile=/etc/sidecar.env
+
+# Creates /run/sidecar at start, removes it at stop. The socket lives there.
+RuntimeDirectory=sidecar
+
+ExecStart=/opt/sidecar/venv/bin/gunicorn app.main:app \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind unix:/run/sidecar/gunicorn.sock \
+    --umask 007 \
+    --timeout 30 \
+    --graceful-timeout 20 \
+    --access-logfile - \
+    --error-logfile -
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=3
+
+# Cheap hardening — each line removes something the app never needs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
