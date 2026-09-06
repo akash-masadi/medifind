@@ -38,10 +38,8 @@ Verified end to end against a running server:
 
 ## TODO before this is real
 
-- [ ] Paste a real Groq key into `.env` and run `python -m tests.run_eval`;
-      record the score below.
-- [ ] Confirm the model ID `llama-3.3-70b-versatile` is still current at
-      console.groq.com/docs/models — retired IDs return 404 `model_not_found`.
+- [x] Real key + eval run. See below.
+- [x] Model ID corrected — see "model availability" below.
 - [ ] Get the red-flag list reviewed by a clinician.
 - [ ] `SymptomSearchController.java` logs `request.getSymptoms()` at INFO —
       change to a count before this goes anywhere near production data.
@@ -50,4 +48,43 @@ Verified end to end against a running server:
 
 | Date | Model | Prompt change | Score |
 |---|---|---|---|
-| | | | _(not yet run — needs a real API key)_ |
+| 2026-09-05 | `openai/gpt-oss-120b` | baseline | **14/15 = 93%** |
+
+Latency 530–1035 ms per call, ~800 ms typical. 12.2 s for the 15-case suite.
+
+### The one failure
+
+`"sharp pain in lower right belly since last night"` → `GENERAL_PHYSICIAN`
+(conf 0.78), expected `GASTROENTEROLOGIST`.
+
+Arguably the eval is wrong, not the model: acute right-lower-quadrant pain is a
+classic appendicitis presentation, which needs urgent *surgical* assessment —
+neither answer is really right, and `GASTROENTEROLOGIST` was a sloppy label.
+
+**Action for clinical review:** this may belong in `redflags.py` rather than in
+the model path at all. Add to the list of patterns for a clinician to rule on.
+
+## 2026-09-05 — model availability
+
+The first eval run scored 1/15, every case `source: fallback`. Two stacked
+causes, found by bisecting with plain `curl` rather than reading code:
+
+1. **401** — the real key was in the repo-root `.env`; the sidecar reads
+   `symptom-sidecar/.env`, which still held the `gsk_replace_me` placeholder.
+   The key now lives in `symptom-sidecar/.env`. The root `.env` still has a
+   duplicate `SIDECAR_*` block (lines ~83-90) — **delete it**, two sources of
+   truth for a secret is a hazard. Both files are gitignored; verified the key
+   is not in git history.
+2. **404 `model_not_found`** — `llama-3.3-70b-versatile` is not available to
+   this account. `GET /openai/v1/models` with the key is the definitive check;
+   it returned 14 models, no Llama chat models among them. Switched to
+   `openai/gpt-oss-120b`.
+
+Also tested `openai/gpt-oss-20b`: faster (665 ms vs 915 ms) but it returned
+`"confidence": "HIGH"` — a string where the schema wants a float, which the
+validator rejects into a fallback. A concrete demonstration of why the closed
+schema is validated rather than trusted. Staying on 120b.
+
+`groq_max_tokens` raised 400 → 700: gpt-oss spends completion tokens on
+reasoning before the JSON appears (202 used on a trivial case), and truncation
+shows up as `unparseable_json`, not as an obvious error.
